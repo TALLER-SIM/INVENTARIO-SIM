@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catálogo - Soluciones de Ingeniería y Manufactura</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
+
+    <header class="bg-slate-950 border-b border-slate-800 p-5 shadow-xl sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wider text-slate-200">PORTAL DE ABASTECIMIENTO EN LÍNEA</h1>
+            <div class="relative bg-slate-900 border border-slate-700 px-4 py-2 rounded flex items-center space-x-2">
+                <span class="text-sm font-semibold text-slate-300">Carrito de Pedido:</span>
+                <span id="contador-carrito" class="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">0</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <div class="lg:col-span-3">
+            <h2 class="text-lg font-semibold text-slate-300 mb-4 uppercase tracking-wider">Disponibilidad de Manufactura Actual</h2>
+            <div id="catalogo-productos" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                </div>
+        </div>
+
+        <div class="bg-slate-950 p-5 rounded-lg border border-slate-800 h-fit shadow-md sticky top-24">
+            <h2 class="text-md font-semibold text-amber-500 mb-3 uppercase tracking-wider border-b border-slate-800 pb-2">Resumen de Orden</h2>
+            <div id="items-carrito" class="space-y-3 max-h-60 overflow-y-auto mb-4 pr-1 text-sm text-slate-300">
+                <p class="text-slate-500 italic text-xs py-2">No has agregado componentes a la orden.</p>
+            </div>
+            <button id="btn-enviar-pedido" disabled class="w-full bg-amber-500 disabled:bg-slate-800 disabled:text-slate-600 text-slate-900 font-bold p-2.5 rounded text-xs hover:bg-amber-400 transition uppercase tracking-wider">
+                Enviar Orden de Pedido
+            </button>
+        </div>
+
+    </main>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Tu llave de conexión
+        const firebaseConfig = {
+            apiKey: "AIzaSyD8KzqoUFm53de_LB_xTI1D4mzCWxNkNdg",
+            authDomain: "taller-inventario-5f2eb.firebaseapp.com",
+            projectId: "taller-inventario-5f2eb",
+            storageBucket: "taller-inventario-5f2eb.firebasestorage.app",
+            messagingSenderId: "931074524091",
+            appId: "1:931074524091:web:2f84fde5a43fbf6169fa9e"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let carrito = [];
+        let stockGlobal = {};
+
+        // Escuchar cambios de stock
+        onSnapshot(collection(db, "inventario"), (snapshot) => {
+            const catalogo = document.getElementById('catalogo-productos');
+            catalogo.innerHTML = '';
+            
+            snapshot.forEach((docSnap) => {
+                const item = docSnap.data();
+                const id = docSnap.id;
+                stockGlobal[id] = item.stock;
+                
+                const tieneStock = item.stock > 0;
+
+                catalogo.innerHTML += `
+                    <div class="bg-slate-950 rounded-lg border border-slate-800 overflow-hidden shadow-lg hover:border-slate-700 transition flex flex-col justify-between">
+                        <img src="${item.fotoUrl}" class="w-full h-44 object-contain p-2 border-b border-slate-900 bg-slate-800">
+                        <div class="p-4 flex-grow flex flex-col justify-between">
+                            <div>
+                                <h3 class="text-base font-bold text-slate-200 mb-1 line-clamp-1">${item.nombre}</h3>
+                                <div class="flex flex-wrap gap-1 mb-3">
+                                    <span class="bg-slate-900 text-slate-400 border border-slate-800 text-[10px] px-2 py-0.5 rounded font-mono">${item.proceso}</span>
+                                    <span class="bg-slate-900 text-amber-500 border border-slate-800 text-[10px] px-2 py-0.5 rounded font-mono">${item.material}</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-900">
+                                <div class="flex flex-col">
+                                    <span class="text-[10px] text-slate-500 uppercase tracking-wider">Disponibles</span>
+                                    <span class="font-mono font-bold text-sm ${tieneStock ? 'text-emerald-400' : 'text-rose-500'}">
+                                        ${tieneStock ? `${item.stock} pzs` : 'Agotado'}
+                                    </span>
+                                </div>
+                                <button onclick="agregarAlCarrito('${id}', '${item.nombre}')" ${!tieneStock ? 'disabled' : ''} class="bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-slate-200 font-bold text-xs px-3 py-2 rounded transition uppercase tracking-wider border border-slate-700">
+                                    + Pedir
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            actualizarInterfazCarrito();
+        });
+
+        // Función para agregar desde el catálogo
+        window.agregarAlCarrito = (id, nombre) => {
+            const itemEnCarrito = carrito.find(a => a.id === id);
+            const stockDisponible = stockGlobal[id];
+
+            if (itemEnCarrito) {
+                if (itemEnCarrito.cantidad < stockDisponible) {
+                    itemEnCarrito.cantidad++;
+                } else {
+                    alert("No hay más existencias en planta.");
+                }
+            } else {
+                carrito.push({ id, nombre, cantidad: 1 });
+            }
+            actualizarInterfazCarrito();
+        };
+
+        // Funciones nuevas para sumar y restar dentro del carrito
+        window.sumarAlCarrito = (index) => {
+            const item = carrito[index];
+            const stockDisponible = stockGlobal[item.id];
+            
+            if (item.cantidad < stockDisponible) {
+                item.cantidad++;
+                actualizarInterfazCarrito();
+            } else {
+                alert("No hay más existencias en planta.");
+            }
+        };
+
+        window.restarDelCarrito = (index) => {
+            if (carrito[index].cantidad > 1) {
+                carrito[index].cantidad--;
+            } else {
+                // Si la cantidad llega a 0, se elimina del carrito
+                carrito.splice(index, 1);
+            }
+            actualizarInterfazCarrito();
+        };
+
+        window.eliminarDelCarrito = (index) => {
+            carrito.splice(index, 1);
+            actualizarInterfazCarrito();
+        };
+
+        function actualizarInterfazCarrito() {
+            const contenedor = document.getElementById('items-carrito');
+            const contador = document.getElementById('contador-carrito');
+            const btnEnviar = document.getElementById('btn-enviar-pedido');
+            
+            let totalPiezas = 0;
+
+            if (carrito.length === 0) {
+                contenedor.innerHTML = '<p class="text-slate-500 italic text-xs py-2">No has agregado componentes a la orden.</p>';
+                btnEnviar.disabled = true;
+                contador.innerText = "0";
+                return;
+            }
+
+            contenedor.innerHTML = '';
+            carrito.forEach((item, index) => {
+                totalPiezas += item.cantidad;
+                contenedor.innerHTML += `
+                    <div class="py-2 flex flex-col bg-slate-900/30 px-3 rounded mt-2 border border-slate-800">
+                        <div class="flex justify-between items-start mb-2">
+                            <p class="font-medium text-slate-300 text-xs leading-tight pr-2">${item.nombre}</p>
+                            <button onclick="eliminarDelCarrito(${index})" class="text-rose-500 hover:text-rose-400 font-bold text-xs px-1" title="Eliminar partida">✕</button>
+                        </div>
+                        <div class="flex items-center justify-between border-t border-slate-800/50 pt-2">
+                            <span class="text-[10px] text-slate-500 uppercase tracking-wider">Cantidad:</span>
+                            <div class="flex items-center space-x-3 bg-slate-950 rounded border border-slate-800 p-0.5">
+                                <button onclick="restarDelCarrito(${index})" class="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm font-bold">-</button>
+                                <span class="text-xs text-amber-500 font-mono font-bold w-4 text-center">${item.cantidad}</span>
+                                <button onclick="sumarAlCarrito(${index})" class="w-6 h-6 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-sm font-bold">+</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            contador.innerText = totalPiezas;
+            btnEnviar.disabled = false;
+        }
+
+        document.getElementById('btn-enviar-pedido').addEventListener('click', async () => {
+            const btn = document.getElementById('btn-enviar-pedido');
+            btn.innerText = "ENVIANDO ORDEN...";
+            btn.disabled = true;
+
+            try {
+                for (const item of carrito) {
+                    const nuevoStock = stockGlobal[item.id] - item.cantidad;
+                    await updateDoc(doc(db, "inventario", item.id), { stock: nuevoStock });
+                }
+
+                await addDoc(collection(db, "pedidos"), {
+                    articulos: carrito,
+                    fecha: new Date().toISOString()
+                });
+
+                alert("Orden enviada exitosamente a la planta.");
+                carrito = [];
+                actualizarInterfazCarrito();
+            } catch (error) {
+                console.error("Error: ", error);
+                alert("Error de conexión.");
+            } finally {
+                btn.innerText = "ENVIAR ORDEN DE PEDIDO";
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
