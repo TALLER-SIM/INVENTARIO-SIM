@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catálogo SIM - Soluciones de Ingeniería y Manufactura</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="manifest.json">
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Aplicación SIM registrada con éxito.'))
+                .catch(err => console.error('Error al registrar la aplicación:', err));
+        }
+    </script>
+    
+    <!-- INICIO DE CONFIGURACIÓN DE EMAILJS -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script type="text/javascript">
+        (function() {
+            emailjs.init({
+              publicKey: "SiaZ9Gr_TnHE5W8aa",
+            });
+        })();
+    </script>
+    <!-- FIN DE CONFIGURACIÓN DE EMAILJS -->
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen font-sans">
+
+    <header class="bg-white border-b-4 border-orange-500 p-4 shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <img src="logo.jpg" alt="Logo SIM" class="h-10 md:h-14 object-contain">
+            <div class="relative bg-slate-50 border border-slate-200 px-4 py-2 rounded-full flex items-center space-x-2 shadow-inner">
+                <span class="text-xs md:text-sm font-bold text-blue-800 uppercase tracking-wider">Orden Actual:</span>
+                <span id="contador-carrito" class="bg-orange-500 text-white font-bold text-xs px-2.5 py-0.5 rounded-full shadow">0</span>
+            </div>
+        </div>
+    </header>
+
+    <nav class="bg-white border-b border-slate-200 py-3 px-6 shadow-sm">
+        <div class="max-w-7xl mx-auto flex flex-wrap gap-2" id="menu-principales">
+            <button onclick="seleccionarFiltroPrincipal('Todos')" id="btn-main-Todos" class="px-4 py-1.5 rounded text-xs font-bold uppercase border tracking-wider transition bg-blue-800 border-blue-800 text-white shadow-md">🔲 Todos los Equipos</button>
+        </div>
+    </nav>
+
+    <nav id="nav-subcategorias" class="bg-slate-100 border-b border-slate-200 py-2.5 px-6 hidden shadow-inner">
+        <div class="max-w-7xl mx-auto flex flex-wrap gap-2 text-[11px]" id="menu-subcategorias">
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        <div class="lg:col-span-3">
+            <h2 class="text-md font-bold text-blue-800 mb-4 uppercase tracking-wider border-b-2 border-orange-500 pb-1 inline-block">Disponibilidad de Manufactura</h2>
+            <div id="catalogo-productos" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 mt-2">
+            </div>
+        </div>
+
+        <div class="bg-white p-5 rounded border border-slate-200 shadow-sm sticky top-28 h-fit">
+            <h2 class="text-md font-bold text-blue-800 mb-3 uppercase tracking-wider border-b border-slate-200 pb-2">Resumen de Requisición</h2>
+            <div id="items-carrito" class="space-y-2 max-h-[50vh] overflow-y-auto mb-4 pr-1 text-sm">
+                <p class="text-slate-400 italic text-xs py-2 text-center">Aún no se agregan piezas.</p>
+            </div>
+            <button id="btn-enviar-pedido" disabled class="w-full bg-orange-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold p-3 rounded text-xs hover:bg-orange-600 transition shadow-md uppercase tracking-wider">
+                Procesar Orden de Pedido
+            </button>
+        </div>
+
+    </main>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, addDoc, doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD8KzqoUFm53de_LB_xTI1D4mzCWxNkNdg",
+            authDomain: "taller-inventario-5f2eb.firebaseapp.com",
+            projectId: "taller-inventario-5f2eb",
+            storageBucket: "taller-inventario-5f2eb.firebasestorage.app",
+            messagingSenderId: "931074524091",
+            appId: "1:931074524091:web:2f84fde5a43fbf6169fa9e"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let carrito = [];
+        let stockGlobal = {};
+        let listaProductosMemo = [];
+        let categoriasGlobal = {};
+        
+        let idPrincipalActivo = 'Todos';
+        let idSubActivo = 'Todos';
+
+        onSnapshot(collection(db, "categorias"), (snapshot) => {
+            categoriasGlobal = {};
+            snapshot.forEach(docSnap => categoriasGlobal[docSnap.id] = docSnap.data());
+            renderMenuCompleto();
+        });
+
+        onSnapshot(collection(db, "inventario"), (snapshot) => {
+            listaProductosMemo = [];
+            snapshot.forEach(docSnap => listaProductosMemo.push({ id: docSnap.id, ...docSnap.data() }));
+            renderizarCatalogoFiltrado();
+            actualizarInterfazCarrito();
+        });
+
+        function renderizarMenuPrincipales() {
+            const nav = document.getElementById('menu-principales');
+            let html = `<button onclick="seleccionarFiltroPrincipal('Todos')" class="${idPrincipalActivo === 'Todos' ? 'px-4 py-1.5 rounded text-xs font-bold uppercase border tracking-wider transition bg-blue-800 border-blue-800 text-white shadow-md' : 'px-4 py-1.5 rounded text-xs font-bold uppercase border tracking-wider transition bg-white border-slate-300 text-slate-600 hover:bg-slate-50 shadow-sm'}">🔲 Todos los Equipos</button>`;
+            
+            for (let id in categoriasGlobal) {
+                const cat = categoriasGlobal[id];
+                if (!cat.padreId) {
+                    const act = idPrincipalActivo === id;
+                    html += `<button onclick="seleccionarFiltroPrincipal('${id}')" class="${act ? 'px-4 py-1.5 rounded text-xs font-bold uppercase border tracking-wider transition bg-blue-800 border-blue-800 text-white shadow-md' : 'px-4 py-1.5 rounded text-xs font-bold uppercase border tracking-wider transition bg-white border-slate-300 text-slate-600 hover:bg-slate-50 shadow-sm'}">📁 ${cat.nombre}</button>`;
+                }
+            }
+            nav.innerHTML = html;
+        }
+
+        function renderizarMenuSubcategorias() {
+            const navSub = document.getElementById('nav-subcategorias');
+            const contenedorSub = document.getElementById('menu-subcategorias');
+            
+            if (idPrincipalActivo === 'Todos') { navSub.classList.add('hidden'); return; }
+
+            let subcatHijas = [];
+            for (let id in categoriasGlobal) {
+                if (categoriasGlobal[id].padreId === idPrincipalActivo) {
+                    subcatHijas.push({ id, ...categoriasGlobal[id] });
+                }
+            }
+
+            if (subcatHijas.length === 0) { navSub.classList.add('hidden'); return; }
+
+            navSub.classList.remove('hidden');
+            let html = `<button onclick="seleccionarSubFiltro('Todos')" class="${idSubActivo === 'Todos' ? 'px-3 py-1 bg-orange-500 text-white rounded font-bold shadow-sm transition' : 'px-3 py-1 bg-white border border-slate-300 text-slate-600 rounded hover:bg-slate-50 transition'}">Ver Todo</button>`;
+            
+            subcatHijas.forEach(sub => {
+                html += `<button onclick="seleccionarSubFiltro('${sub.id}')" class="${idSubActivo === sub.id ? 'px-3 py-1 bg-orange-500 text-white rounded font-bold shadow-sm transition' : 'px-3 py-1 bg-white border border-slate-300 text-slate-600 rounded hover:bg-slate-50 transition'}">➔ ${sub.nombre}</button>`;
+            });
+            contenedorSub.innerHTML = html;
+        }
+
+        window.seleccionarFiltroPrincipal = (id) => { idPrincipalActivo = id; idSubActivo = 'Todos'; renderMenuCompleto(); };
+        window.seleccionarSubFiltro = (id) => { idSubActivo = id; renderMenuCompleto(); };
+
+        function renderMenuCompleto() { renderizarMenuPrincipales(); renderizarMenuSubcategorias(); renderizarCatalogoFiltrado(); }
+
+        window.renderizarCatalogoFiltrado = () => {
+            const catalogo = document.getElementById('catalogo-productos');
+            catalogo.innerHTML = '';
+            
+            listaProductosMemo.forEach((item) => {
+                const id = item.id;
+                stockGlobal[id] = item.stock;
+                
+                if (idPrincipalActivo !== 'Todos') {
+                    const itemCat = categoriasGlobal[item.categoriaId];
+                    if (!itemCat) return;
+                    
+                    if (itemCat.padreId) {
+                        if (itemCat.padreId !== idPrincipalActivo) return;
+                        if (idSubActivo !== 'Todos' && item.categoriaId !== idSubActivo) return;
+                    } else {
+                        if (item.categoriaId !== idPrincipalActivo) return;
+                        if (idSubActivo !== 'Todos') return;
+                    }
+                }
+
+                const tieneStock = item.stock > 0;
+                const nombreCatVisual = categoriasGlobal[item.categoriaId] ? categoriasGlobal[item.categoriaId].nombre : 'Sin Clasificar';
+
+                catalogo.innerHTML += `
+                    <div class="bg-white rounded border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between overflow-hidden group">
+                        <div class="p-2 border-b border-slate-100 bg-slate-50 flex justify-center h-48 overflow-hidden group-hover:bg-white transition">
+                            <img src="${item.fotoUrl}" class="w-full object-contain">
+                        </div>
+                        <div class="p-4 flex-grow flex flex-col justify-between">
+                            <div>
+                                <h3 class="text-sm font-bold text-blue-800 mb-1 tracking-wide uppercase leading-tight">${item.nombre}</h3>
+                                <div class="flex flex-wrap gap-1 mb-2">
+                                    <span class="bg-slate-100 text-slate-600 border border-slate-200 text-[10px] px-2 py-0.5 rounded font-bold">${nombreCatVisual}</span>
+                                    <span class="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] px-2 py-0.5 rounded font-mono font-bold">${item.material}</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                                <div class="flex flex-col">
+                                    <span class="text-[9px] text-slate-400 uppercase tracking-widest font-bold">Disponibles</span>
+                                    <span class="font-mono font-bold text-sm ${tieneStock ? 'text-green-600' : 'text-rose-600'}">${tieneStock ? `${item.stock} pzs` : 'Agotado'}</span>
+                                </div>
+                                <button onclick="agregarAlCarrito('${id}', '${item.nombre}')" ${!tieneStock ? 'disabled' : ''} class="bg-blue-800 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-[10px] px-4 py-2.5 rounded transition uppercase tracking-wider shadow-sm disabled:shadow-none">+ Requerir</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        };
+
+        window.agregarAlCarrito = (id, nombre) => {
+            const item = carrito.find(a => a.id === id);
+            if (item) {
+                item.cantidad < stockGlobal[id] ? item.cantidad++ : alert("Límite de stock alcanzado.");
+            } else {
+                carrito.push({ id, nombre, cantidad: 1 });
+            }
+            actualizarInterfazCarrito();
+        };
+
+        window.sumarAlCarrito = (i) => { carrito[i].cantidad < stockGlobal[carrito[i].id] ? carrito[i].cantidad++ : alert("Límite de stock."); actualizarInterfazCarrito(); };
+        window.restarDelCarrito = (i) => { carrito[i].cantidad > 1 ? carrito[i].cantidad-- : carrito.splice(i, 1); actualizarInterfazCarrito(); };
+        window.eliminarDelCarrito = (i) => { carrito.splice(i, 1); actualizarInterfazCarrito(); };
+
+        function actualizarInterfazCarrito() {
+            const cont = document.getElementById('items-carrito');
+            const contTotal = document.getElementById('contador-carrito');
+            const btn = document.getElementById('btn-enviar-pedido');
+            let total = 0;
+
+            if (carrito.length === 0) {
+                cont.innerHTML = '<p class="text-slate-400 italic text-xs py-2 text-center">Aún no se agregan piezas.</p>';
+                btn.disabled = true; contTotal.innerText = "0"; return;
+            }
+
+            cont.innerHTML = '';
+            carrito.forEach((item, i) => {
+                total += item.cantidad;
+                cont.innerHTML += `
+                    <div class="py-2 flex flex-col bg-slate-50 px-3 rounded border border-slate-200">
+                        <div class="flex justify-between items-start mb-2">
+                            <p class="font-bold text-slate-700 text-[11px] uppercase leading-tight pr-2">${item.nombre}</p>
+                            <button onclick="eliminarDelCarrito(${i})" class="text-rose-500 hover:text-rose-700 font-bold text-xs px-1">✕</button>
+                        </div>
+                        <div class="flex items-center justify-between border-t border-slate-200 pt-2">
+                            <span class="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Cantidad:</span>
+                            <div class="flex items-center space-x-2 bg-white rounded border border-slate-200 shadow-sm p-0.5">
+                                <button onclick="restarDelCarrito(${i})" class="w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-blue-800 rounded font-bold transition">-</button>
+                                <span class="text-xs text-orange-600 font-mono font-bold w-4 text-center">${item.cantidad}</span>
+                                <button onclick="sumarAlCarrito(${i})" class="w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-blue-800 rounded font-bold transition">+</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            contTotal.innerText = total; btn.disabled = false;
+        }
+
+        document.getElementById('btn-enviar-pedido').addEventListener('click', async () => {
+            const btn = document.getElementById('btn-enviar-pedido');
+            btn.innerText = "PROCESANDO..."; 
+            btn.disabled = true;
+            
+            try {
+                let listaArticulosTexto = "";
+                let totalPiezas = 0;
+
+                // 1. Actualizar inventario en Firebase y preparar texto de listado
+                for (const item of carrito) {
+                    await updateDoc(doc(db, "inventario", item.id), { stock: stockGlobal[item.id] - item.cantidad });
+                    listaArticulosTexto += `- ${item.cantidad} pieza(s) de ${item.nombre}\n`;
+                    totalPiezas += item.cantidad;
+                }
+                
+                // 2. Guardar registro en Firebase
+                await addDoc(collection(db, "pedidos"), { articulos: carrito, fecha: new Date().toISOString(), estado: 'pendiente' });
+                
+                // 3. Preparar envío de correo (EmailJS)
+                const templateParams = { total_piezas: totalPiezas, lista_articulos: listaArticulosTexto };
+                const emailPromise = emailjs.send("service_ut1b17b", "template_b22rdqp", templateParams);
+
+                // 4. Preparar envío de notificación (Telegram)
+                const mensajeTelegram = `🔔 *NUEVA ORDEN DE PEDIDO*\n\nSe ha procesado una solicitud desde la plataforma SIM.\n\n*Total de piezas:* ${totalPiezas}\n*Desglose:*\n${listaArticulosTexto}`;
+                const telegramUrl = `https://api.telegram.org/bot8896170352:AAFvNDBCiN2AtagfhvUfskdD6fAnIncRHyw/sendMessage`;
+                const telegramPromise = fetch(telegramUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: '6704605188',
+                        text: mensajeTelegram,
+                        parse_mode: 'Markdown'
+                    })
+                });
+
+                // 5. Ejecutar ambas acciones de comunicación en paralelo
+                await Promise.all([emailPromise, telegramPromise]);
+
+                alert("Orden procesada exitosamente. Se ha enviado una notificación al administrador.");
+                carrito = []; 
+                actualizarInterfazCarrito();
+            } catch (error) {
+                console.error(error);
+                alert("Hubo un error al procesar la orden o enviar las notificaciones. Por favor revise su conexión.");
+            } finally {
+                btn.innerText = "PROCESAR ORDEN DE PEDIDO"; 
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
